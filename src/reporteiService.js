@@ -1,29 +1,31 @@
-const REPORTEI_TOKEN = process.env.REACT_APP_REPORTEI_TOKEN
-const BASE_URL = 'https://app.reportei.com/api/v2'
+const BASE_URL = '/api/reportei'
 
-const headers = {
-  'Authorization': `Bearer ${REPORTEI_TOKEN}`,
-  'Content-Type': 'application/json'
+async function reporteiFetch(path, method = 'GET', body = null) {
+  const encodedPath = encodeURIComponent(path)
+  const options = {
+    method,
+    headers: { 'Content-Type': 'application/json' }
+  }
+  if (body) options.body = JSON.stringify(body)
+  const res = await fetch(`${BASE_URL}?path=${encodedPath}`, options)
+  return res.json()
 }
 
 export async function getProjects() {
-  const res = await fetch(`${BASE_URL}/projects?per_page=100`, { headers })
-  const data = await res.json()
+  const data = await reporteiFetch('projects?per_page=100')
   return data.data || []
 }
 
 export async function getIntegrations(projectId, slug) {
-  const params = new URLSearchParams({ per_page: 100 })
-  if (projectId) params.append('project_id', projectId)
-  if (slug) params.append('slug', slug)
-  const res = await fetch(`${BASE_URL}/integrations?${params}`, { headers })
-  const data = await res.json()
+  let path = 'integrations?per_page=100'
+  if (projectId) path += `&project_id=${projectId}`
+  if (slug) path += `&slug=${slug}`
+  const data = await reporteiFetch(path)
   return data.data || []
 }
 
 export async function getMetrics(integrationSlug) {
-  const res = await fetch(`${BASE_URL}/metrics?integration_slug=${integrationSlug}&per_page=100`, { headers })
-  const data = await res.json()
+  const data = await reporteiFetch(`metrics?integration_slug=${integrationSlug}&per_page=100`)
   return data.data || []
 }
 
@@ -47,12 +49,7 @@ export async function getSpend(integrationId, integrationSlug, startDate, endDat
     metrics: [spendMetric]
   }
 
-  const res = await fetch(`${BASE_URL}/metrics/get-data`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body)
-  })
-  const data = await res.json()
+  const data = await reporteiFetch('metrics/get-data', 'POST', body)
   const value = data?.data?.[spendMetric.id]?.values
   return value || 0
 }
@@ -70,6 +67,5 @@ export function getTodayRange() {
 }
 
 export function getDiasDecorridos() {
-  const now = new Date()
-  return now.getDate()
+  return new Date().getDate()
 }
