@@ -20,7 +20,8 @@ function fmt(v) {
 
 export default function App() {
   const [clients, setClients] = useState([])
-  const [filter, setFilter] = useState('all')
+  const [platformFilter, setPlatformFilter] = useState('all')
+  const [clientFilter, setClientFilter] = useState('all')
   const [showAddModal, setShowAddModal] = useState(false)
   const [editClient, setEditClient] = useState(null)
   const [aporteClient, setAporteClient] = useState(null)
@@ -102,7 +103,11 @@ export default function App() {
   }
 
   const activePlatforms = [...new Set(clients.map(c => c.platform))].filter(p => ALL_PLATFORMS.includes(p))
-  const filteredClients = filter === 'all' ? clients : clients.filter(c => c.platform === filter)
+  const clientNames = [...new Set(clients.map(c => c.project_name))].sort()
+
+  const filteredClients = clients
+    .filter(c => platformFilter === 'all' || c.platform === platformFilter)
+    .filter(c => clientFilter === 'all' || c.project_name === clientFilter)
 
   const totalBudget = filteredClients.reduce((a, c) => a + c.budget_mensal + (c.aportes || []).reduce((x, y) => x + y.valor, 0), 0)
   const totalSpent = filteredClients.reduce((a, c) => a + (c.spent || 0), 0)
@@ -116,9 +121,10 @@ export default function App() {
     return dias <= c.alerta_dias
   }).length
 
-  const platformGroups = filter === 'all'
-    ? activePlatforms.map(p => ({ platform: p, items: clients.filter(c => c.platform === p) }))
-    : [{ platform: filter, items: filteredClients }]
+  const activePlatformsFiltered = [...new Set(filteredClients.map(c => c.platform))]
+  const platformGroups = platformFilter === 'all'
+    ? activePlatformsFiltered.map(p => ({ platform: p, items: filteredClients.filter(c => c.platform === p) }))
+    : [{ platform: platformFilter, items: filteredClients }]
 
   const s = {
     app: { maxWidth: 900, margin: '0 auto', padding: '0 1rem 3rem', fontFamily: 'system-ui, sans-serif' },
@@ -129,19 +135,23 @@ export default function App() {
     metricCard: { background: '#f9fafb', borderRadius: 8, padding: '1rem' },
     metricLabel: { fontSize: 12, color: '#6b7280', marginBottom: 6 },
     metricValue: { fontSize: 20, fontWeight: 500, color: '#111' },
-    filterBar: { display: 'flex', gap: 8, marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' },
+    filterSection: { marginBottom: '1.25rem' },
+    filterRow: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 },
+    filterLabel: { fontSize: 11, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', minWidth: 60 },
     sectionTitle: { fontSize: 12, fontWeight: 500, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '1.25rem 0 0.75rem', display: 'flex', alignItems: 'center', gap: 6 },
     grid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 },
     emptyState: { textAlign: 'center', padding: '3rem 0', color: '#9ca3af', fontSize: 14 },
   }
 
-  const filterBtnStyle = (val) => ({
-    fontSize: 13, padding: '6px 14px', borderRadius: 99, cursor: 'pointer',
-    border: filter === val ? '0.5px solid #374151' : '0.5px solid #e5e7eb',
-    background: filter === val ? '#f3f4f6' : 'transparent',
-    fontWeight: filter === val ? 500 : 400,
-    color: filter === val ? '#111' : '#6b7280',
+  const filterBtnStyle = (active) => ({
+    fontSize: 13, padding: '5px 12px', borderRadius: 99, cursor: 'pointer',
+    border: active ? '0.5px solid #374151' : '0.5px solid #e5e7eb',
+    background: active ? '#f3f4f6' : 'transparent',
+    fontWeight: active ? 500 : 400,
+    color: active ? '#111' : '#6b7280',
   })
+
+  const summaryLabel = clientFilter !== 'all' ? clientFilter : platformFilter !== 'all' ? PLATFORM_LABELS[platformFilter] : 'Todos os clientes'
 
   return (
     <div style={s.app}>
@@ -149,7 +159,7 @@ export default function App() {
         <div>
           <div style={s.title}>Monitor de budget — GZ Marketing</div>
           <div style={s.sub}>
-            Junho 2026 · dia {diasDecorridos} de 30
+            {new Date().toLocaleString('pt-BR', { month: 'long', year: 'numeric' })} · dia {diasDecorridos} de {new Date(new Date().getFullYear(), new Date().getMonth()+1, 0).getDate()}
             {lastUpdated && ` · atualizado às ${lastUpdated.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`}
           </div>
         </div>
@@ -161,6 +171,30 @@ export default function App() {
         </div>
       </div>
 
+      <div style={s.filterSection}>
+        <div style={s.filterRow}>
+          <span style={s.filterLabel}>Cliente</span>
+          <button style={filterBtnStyle(clientFilter === 'all')} onClick={() => setClientFilter('all')}>Todos</button>
+          {clientNames.map(name => (
+            <button key={name} style={filterBtnStyle(clientFilter === name)} onClick={() => setClientFilter(name)}>
+              {name}
+            </button>
+          ))}
+        </div>
+        <div style={s.filterRow}>
+          <span style={s.filterLabel}>Plataforma</span>
+          <button style={filterBtnStyle(platformFilter === 'all')} onClick={() => setPlatformFilter('all')}>Todas</button>
+          {activePlatforms.map(p => (
+            <button key={p} style={filterBtnStyle(platformFilter === p)} onClick={() => setPlatformFilter(p)}>
+              {PLATFORM_LABELS[p] || p}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: 8 }}>
+        Exibindo: <strong style={{ color: '#374151' }}>{summaryLabel}</strong> · {filteredClients.length} card{filteredClients.length !== 1 ? 's' : ''}
+      </div>
       <div style={s.summaryGrid}>
         <div style={s.metricCard}>
           <div style={s.metricLabel}>budget total</div>
@@ -182,28 +216,25 @@ export default function App() {
         </div>
       </div>
 
-      <div style={s.filterBar}>
-        <button style={filterBtnStyle('all')} onClick={() => setFilter('all')}>Todos</button>
-        {activePlatforms.map(p => (
-          <button key={p} style={filterBtnStyle(p)} onClick={() => setFilter(p)}>
-            {PLATFORM_LABELS[p] || p}
-          </button>
-        ))}
-      </div>
-
       {clients.length === 0 ? (
         <div style={s.emptyState}>
           <p>Nenhum cliente cadastrado ainda.</p>
           <button onClick={() => setShowAddModal(true)} style={{ marginTop: 12, fontSize: 13 }}>+ Adicionar primeiro cliente</button>
         </div>
+      ) : filteredClients.length === 0 ? (
+        <div style={s.emptyState}>
+          <p>Nenhum card encontrado para o filtro selecionado.</p>
+        </div>
       ) : (
         platformGroups.map(group => (
           <div key={group.platform}>
-            <div style={s.sectionTitle}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: group.platform === 'facebook_ads' ? '#1a56db' : group.platform === 'google_ads' ? '#d97706' : group.platform === 'linkedin_ads' ? '#1e40af' : '#9d174d', display: 'inline-block' }} />
-              {PLATFORM_LABELS[group.platform] || group.platform}
-              <span style={{ fontWeight: 400, color: '#d1d5db' }}>· {group.items.length} cliente{group.items.length !== 1 ? 's' : ''}</span>
-            </div>
+            {platformFilter === 'all' && (
+              <div style={s.sectionTitle}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: group.platform === 'facebook_ads' ? '#1a56db' : group.platform === 'google_ads' ? '#d97706' : group.platform === 'linkedin_ads' ? '#1e40af' : '#9d174d', display: 'inline-block' }} />
+                {PLATFORM_LABELS[group.platform] || group.platform}
+                <span style={{ fontWeight: 400, color: '#d1d5db' }}>· {group.items.length} cliente{group.items.length !== 1 ? 's' : ''}</span>
+              </div>
+            )}
             <div style={s.grid}>
               {group.items.map(c => (
                 <ClientCard
