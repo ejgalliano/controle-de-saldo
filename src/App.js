@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from './supabaseClient'
-import { getIntegrations, getSpend, getPeriodRange } from './reporteiService'
+import { getIntegrations, getSpendCached, getPeriodRange, delay } from './reporteiService'
 import ClientCard from './components/ClientCard'
 import ClientModal from './components/ClientModal'
 import AporteModal from './components/AporteModal'
@@ -95,45 +95,45 @@ export default function App() {
     return data
   }, [])
 
-const fetchSpends = useCallback(async (data, periodKey, cStart, cEnd) => {
-  if (!data || data.length === 0) return
-  const { start, end, diasDecorridos: dias } = getPeriodRange(periodKey, cStart, cEnd)
-  setDiasDecorridos(dias)
+  const fetchSpends = useCallback(async (data, periodKey, cStart, cEnd) => {
+    if (!data || data.length === 0) return
+    const { start, end, diasDecorridos: dias } = getPeriodRange(periodKey, cStart, cEnd)
+    setDiasDecorridos(dias)
 
-  const BATCH_SIZE = 3
-  const results = []
+    const BATCH_SIZE = 3
 
-  for (let i = 0; i < data.length; i += BATCH_SIZE) {
-    const batch = data.slice(i, i + BATCH_SIZE)
-    const batchResults = await Promise.all(batch.map(async (client) => {
-      try {
-        const integrations = await getIntegrations(client.project_id, client.platform)
-        if (!integrations.length) return { ...client, spent: 0, loading: false }
-        const integration = integrations[0]
-        const spent = await getSpendCached(integration.id, client.platform, start, end)
-        return { ...client, spent, loading: false }
-      } catch (e) {
-        console.error('Erro:', e)
-        return { ...client, spent: 0, loading: false }
-      }
-    }))
-    results.push(...batchResults)
-    setClients(prev => {
-      const updated = [...prev]
-      batchResults.forEach(r => {
-        const idx = updated.findIndex(c => c.id === r.id)
-        if (idx !== -1) updated[idx] = r
+    for (let i = 0; i < data.length; i += BATCH_SIZE) {
+      const batch = data.slice(i, i + BATCH_SIZE)
+      const batchResults = await Promise.all(batch.map(async (client) => {
+        try {
+          const integrations = await getIntegrations(client.project_id, client.platform)
+          if (!integrations.length) return { ...client, spent: 0, loading: false }
+          const integration = integrations[0]
+          const spent = await getSpendCached(integration.id, client.platform, start, end)
+          return { ...client, spent, loading: false }
+        } catch (e) {
+          console.error('Erro:', e)
+          return { ...client, spent: 0, loading: false }
+        }
+      }))
+
+      setClients(prev => {
+        const updated = [...prev]
+        batchResults.forEach(r => {
+          const idx = updated.findIndex(c => c.id === r.id)
+          if (idx !== -1) updated[idx] = r
+        })
+        return updated
       })
-      return updated
-    })
-    if (i + BATCH_SIZE < data.length) await delay(500)
-  }
 
-  setLastUpdated(new Date())
-}, [])
+      if (i + BATCH_SIZE < data.length) await delay(500)
+    }
+
+    setLastUpdated(new Date())
+  }, [])
 
   useEffect(() => {
-    loadClients().then(data => fetchSpends(data, activePeriod, activeCustomStart, activeCustomEnd))
+    loadClients().then(data => fetchSpends(data, 'mes_atual', '', ''))
   }, [loadClients, fetchSpends])
 
   async function handleBuscar() {
@@ -158,6 +158,12 @@ const fetchSpends = useCallback(async (data, periodKey, cStart, cEnd) => {
   }
 
   async function handleSaveClient(formData) {
+    // Verifica duplicidade
+    const exists = clients.find(c => c.project_id === formData.project_id && c.platform === formData.platform)
+    if (exists && !editClient) {
+      alert(`Já existe um card para ${formData.project_name} na plataforma ${PLATFORM_LABELS[formData.platform] || formData.platform}.`)
+      return
+    }
     if (editClient) {
       const { error } = await supabase.from('clients_budget').update({ ...formData, updated_at: new Date() }).eq('id', editClient.id)
       if (error) { alert('Erro ao salvar.'); return }
@@ -236,7 +242,6 @@ const fetchSpends = useCallback(async (data, periodKey, cStart, cEnd) => {
 
   return (
     <div style={s.app}>
-      {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem 0 1rem', borderBottom: '0.5px solid #e5e7eb', marginBottom: '1.5rem' }}>
         <div>
           <div style={{ fontSize: 20, fontWeight: 500, color: '#111' }}>Monitor de budget — GZ Marketing</div>
@@ -252,15 +257,10 @@ const fetchSpends = useCallback(async (data, periodKey, cStart, cEnd) => {
         </div>
       </div>
 
-      {/* Filtros */}
       <div style={{ marginBottom: '1.25rem' }}>
         <div style={s.filterRow}>
           <span style={s.filterLabel}>Período</span>
-          <select
-            value={period}
-            onChange={e => setPeriod(e.target.value)}
-            style={{ fontSize: 13, padding: '5px 10px', borderRadius: 8, border: '0.5px solid #d1d5db', background: '#fff', color: '#111' }}
-          >
+          <select value={period} onChange={e => setPeriod(e.target.value)} style={{ fontSize: 13, padding: '5px 10px', borderRadius: 8, border: '0.5px solid #d1d5db', background: '#fff', color: '#111' }}>
             {PERIOD_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           {period === 'personalizado' && (
@@ -270,11 +270,7 @@ const fetchSpends = useCallback(async (data, periodKey, cStart, cEnd) => {
               <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} style={{ fontSize: 13, padding: '5px 10px', borderRadius: 8, border: '0.5px solid #d1d5db' }} />
             </>
           )}
-          <button
-            onClick={handleBuscar}
-            disabled={refreshing}
-            style={{ fontSize: 13, padding: '5px 16px', borderRadius: 8, background: '#111', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 500 }}
-          >
+          <button onClick={handleBuscar} disabled={refreshing} style={{ fontSize: 13, padding: '5px 16px', borderRadius: 8, background: '#111', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 500 }}>
             {refreshing ? 'Buscando...' : 'Buscar'}
           </button>
         </div>
@@ -293,7 +289,6 @@ const fetchSpends = useCallback(async (data, periodKey, cStart, cEnd) => {
         </div>
       </div>
 
-      {/* Resumo */}
       <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: 8 }}>
         Exibindo: <strong style={{ color: '#374151' }}>{summaryLabel}</strong> · {filteredClients.length} card{filteredClients.length !== 1 ? 's' : ''} · {diasDecorridos} dias no período
       </div>
@@ -304,7 +299,6 @@ const fetchSpends = useCallback(async (data, periodKey, cStart, cEnd) => {
         <div style={s.metricCard}><div style={s.metricLabel}>em alerta</div><div style={{ ...s.metricValue, color: alertCount > 0 ? '#dc2626' : '#16a34a' }}>{alertCount} de {filteredClients.length}</div></div>
       </div>
 
-      {/* Cards */}
       {clients.length === 0 ? (
         <div style={s.emptyState}>
           <p>Nenhum cliente cadastrado ainda.</p>
