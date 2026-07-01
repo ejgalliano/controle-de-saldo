@@ -89,21 +89,28 @@ export default function App() {
   const [diasDecorridos, setDiasDecorridos] = useState(1)
   const [progress, setProgress] = useState({ current: 0, total: 0 })
 
+  // Carrega clientes do Supabase sem disparar busca de spend
   const loadClients = useCallback(async () => {
     const { data, error } = await supabase.from('clients_budget').select('*').order('project_name')
-    if (error) { console.error(error); return }
-    setClients(data.map(c => ({ ...c, spent: null, loading: true })))
+    if (error) { console.error(error); return [] }
     return data
   }, [])
 
-  const fetchSpends = useCallback(async (data, periodKey, cStart, cEnd) => {
-    if (!data || data.length === 0) return
+  // Busca spend apenas para os clientes passados (respeita filtro)
+  const fetchSpends = useCallback(async (clientsToFetch, periodKey, cStart, cEnd) => {
+    if (!clientsToFetch || clientsToFetch.length === 0) return
     const { start, end, diasDecorridos: dias } = getPeriodRange(periodKey, cStart, cEnd)
     setDiasDecorridos(dias)
-    setProgress({ current: 0, total: data.length })
+    setProgress({ current: 0, total: clientsToFetch.length })
+    clearMetricsCache()
 
-    for (let i = 0; i < data.length; i++) {
-      const client = data[i]
+    // Marca como loading apenas os clientes que serão buscados
+    setClients(prev => prev.map(c =>
+      clientsToFetch.find(f => f.id === c.id) ? { ...c, loading: true } : c
+    ))
+
+    for (let i = 0; i < clientsToFetch.length; i++) {
+      const client = clientsToFetch[i]
       try {
         await delay(800)
         const integrations = await getIntegrations(client.project_id, client.platform)
@@ -127,12 +134,14 @@ export default function App() {
     setProgress({ current: 0, total: 0 })
   }, [])
 
+  // Carregamento inicial — só carrega lista, não busca spend
   useEffect(() => {
-    loadClients().then(data => fetchSpends(data, 'mes_atual', '', ''))
-  }, [loadClients, fetchSpends])
+    loadClients().then(data => {
+      setClients(data.map(c => ({ ...c, spent: null, loading: false })))
+    })
+  }, [loadClients])
 
   async function handleBuscar() {
-    clearMetricsCache()
     if (period === 'personalizado' && (!customStart || !customEnd)) {
       alert('Informe as datas de início e fim.')
       return
@@ -141,21 +150,35 @@ export default function App() {
     setActivePeriod(period)
     setActiveCustomStart(customStart)
     setActiveCustomEnd(customEnd)
-    const data = await loadClients()
-    await fetchSpends(data, period, customStart, customEnd)
+
+    // Busca só os clientes visíveis (filtro de cliente + plataforma)
+    const allClients = await loadClients()
+    setClients(allClients.map(c => ({ ...c, spent: null, loading: false })))
+
+    const clientsToFetch = allClients
+      .filter(c => clientFilter === 'all' || c.project_name === clientFilter)
+      .filter(c => platformFilter === 'all' || c.platform === platformFilter)
+
+    await fetchSpends(clientsToFetch, period, customStart, customEnd)
     setRefreshing(false)
   }
 
   async function handleRefresh() {
-    clearMetricsCache()
     setRefreshing(true)
-    const data = await loadClients()
-    await fetchSpends(data, activePeriod, activeCustomStart, activeCustomEnd)
+    const allClients = await loadClients()
+    setClients(allClients.map(c => ({ ...c, spent: null, loading: false })))
+
+    const clientsToFetch = allClients
+      .filter(c => clientFilter === 'all' || c.project_name === clientFilter)
+      .filter(c => platformFilter === 'all' || c.platform === platformFilter)
+
+    await fetchSpends(clientsToFetch, activePeriod, activeCustomStart, activeCustomEnd)
     setRefreshing(false)
   }
 
   async function handleSaveClient(formData) {
-    const exists = clients.find(c => c.project_id === formData.project_id && c.platform === formData.platform)
+    const allClients = await loadClients()
+    const exists = allClients.find(c => c.project_id === formData.project_id && c.platform === formData.platform)
     if (exists && !editClient) {
       alert(`Já existe um card para ${formData.project_name} na plataforma ${PLATFORM_LABELS[formData.platform] || formData.platform}.`)
       return
@@ -169,8 +192,8 @@ export default function App() {
     }
     setShowAddModal(false)
     setEditClient(null)
-    const data = await loadClients()
-    fetchSpends(data, activePeriod, activeCustomStart, activeCustomEnd)
+    const updated = await loadClients()
+    setClients(updated.map(c => ({ ...c, spent: null, loading: false })))
   }
 
   async function handleSaveAporte(updatedClient) {
@@ -179,15 +202,18 @@ export default function App() {
       .eq('id', updatedClient.id)
     if (error) { alert('Erro ao registrar aporte.'); return }
     setAporteClient(null)
-    const data = await loadClients()
-    fetchSpends(data, activePeriod, activeCustomStart, activeCustomEnd)
+    const updated = await loadClients()
+    setClients(prev => updated.map(c => {
+      const existing = prev.find(p => p.id === c.id)
+      return { ...c, spent: existing?.spent ?? null, loading: false }
+    }))
   }
 
   async function handleDelete(id) {
     if (!window.confirm('Remover este cliente do monitor?')) return
     await supabase.from('clients_budget').delete().eq('id', id)
-    const data = await loadClients()
-    fetchSpends(data, activePeriod, activeCustomStart, activeCustomEnd)
+    const updated = await loadClients()
+    setClients(updated.map(c => ({ ...c, spent: null, loading: false })))
   }
 
   const activePlatforms = [...new Set(clients.map(c => c.platform))].filter(p => ALL_PLATFORMS.includes(p))
@@ -245,7 +271,9 @@ export default function App() {
           <div style={{ fontSize: 13, color: '#9ca3af', marginTop: 2 }}>
             {isLoading
               ? `Carregando ${progress.current} de ${progress.total} clientes...`
-              : lastUpdated ? `${activePeriodLabel} · atualizado às ${lastUpdated.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : 'Carregando...'}
+              : lastUpdated
+                ? `${activePeriodLabel} · atualizado às ${lastUpdated.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+                : 'Selecione o período e clique em Buscar'}
           </div>
           {isLoading && (
             <div style={{ marginTop: 6, width: 300, height: 4, background: '#e5e7eb', borderRadius: 99, overflow: 'hidden' }}>
@@ -255,7 +283,7 @@ export default function App() {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={handleRefresh} disabled={isLoading || refreshing} style={{ fontSize: 13 }}>
-            {refreshing ? 'Atualizando...' : '↻ Atualizar'}
+            {refreshing && !isLoading ? 'Atualizando...' : '↻ Atualizar'}
           </button>
           <button onClick={() => setShowAddModal(true)} disabled={isLoading} style={{ fontSize: 13 }}>+ Cliente</button>
         </div>
