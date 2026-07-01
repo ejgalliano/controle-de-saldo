@@ -61,44 +61,49 @@ export async function getSpend(integrationId, platformKey, startDate, endDate) {
   }
 
   const data = await reporteiFetch('metrics/get-data', 'POST', body)
-  const result = data?.data?.[spendMetric.id]
+  if (!data?.data) return 0
+
+  // Pega o primeiro resultado independente do ID dinâmico
+  const firstKey = Object.keys(data.data)[0]
+  if (!firstKey) return 0
+  const result = data.data[firstKey]
   if (!result || result.type === 'no_data_in_period') return 0
   return parseFloat(result.values) || 0
 }
 
-function fmt(d) {
+function fmtDate(d) {
   return d.toISOString().split('T')[0]
 }
 
 export function getPeriodRange(period, customStart, customEnd) {
   const now = new Date()
-  const today = fmt(now)
+  const today = fmtDate(now)
 
   switch (period) {
     case 'mes_atual': {
-      const start = fmt(new Date(now.getFullYear(), now.getMonth(), 1))
+      const start = fmtDate(new Date(now.getFullYear(), now.getMonth(), 1))
       return { start, end: today, diasDecorridos: now.getDate() }
     }
     case 'mes_anterior': {
-      const start = fmt(new Date(now.getFullYear(), now.getMonth() - 1, 1))
-      const end = fmt(new Date(now.getFullYear(), now.getMonth(), 0))
+      const start = fmtDate(new Date(now.getFullYear(), now.getMonth() - 1, 1))
+      const end = fmtDate(new Date(now.getFullYear(), now.getMonth(), 0))
       const dias = new Date(now.getFullYear(), now.getMonth(), 0).getDate()
       return { start, end, diasDecorridos: dias }
     }
     case 'ultimos_30': {
       const start = new Date(now)
       start.setDate(start.getDate() - 30)
-      return { start: fmt(start), end: today, diasDecorridos: 30 }
+      return { start: fmtDate(start), end: today, diasDecorridos: 30 }
     }
     case 'ultimos_15': {
       const start = new Date(now)
       start.setDate(start.getDate() - 15)
-      return { start: fmt(start), end: today, diasDecorridos: 15 }
+      return { start: fmtDate(start), end: today, diasDecorridos: 15 }
     }
     case 'ultimos_7': {
       const start = new Date(now)
       start.setDate(start.getDate() - 7)
-      return { start: fmt(start), end: today, diasDecorridos: 7 }
+      return { start: fmtDate(start), end: today, diasDecorridos: 7 }
     }
     case 'personalizado': {
       if (!customStart || !customEnd) return { start: today, end: today, diasDecorridos: 1 }
@@ -106,7 +111,7 @@ export function getPeriodRange(period, customStart, customEnd) {
       return { start: customStart, end: customEnd, diasDecorridos: diff }
     }
     default: {
-      const start = fmt(new Date(now.getFullYear(), now.getMonth(), 1))
+      const start = fmtDate(new Date(now.getFullYear(), now.getMonth(), 1))
       return { start, end: today, diasDecorridos: now.getDate() }
     }
   }
