@@ -24,10 +24,13 @@ const PLATFORM_SLUG_MAP = {
 
 const SPEND_METRIC_KEY = {
   facebook_ads: 'fb_ads:spend',
-  google_ads: 'google_adwords:cost',
+  google_ads: 'gads:cost_micros',
   linkedin_ads: 'linkedin_ads:spend',
   tiktok_ads: 'tiktok_ads:spend',
 }
+
+// Google retorna valor em micros (1/1.000.000)
+const MICROS_PLATFORMS = ['google_ads']
 
 export async function getIntegrations(projectId, platformKey) {
   const slug = PLATFORM_SLUG_MAP[platformKey] || platformKey
@@ -44,6 +47,7 @@ async function getMetrics(slug) {
 }
 
 const metricsCache = {}
+
 export function clearMetricsCache() {
   Object.keys(metricsCache).forEach(key => delete metricsCache[key])
 }
@@ -75,7 +79,11 @@ export async function getSpendCached(integrationId, platformKey, startDate, endD
   if (!firstKey) return 0
   const result = data.data[firstKey]
   if (!result || result.type === 'no_data_in_period') return 0
-  return parseFloat(result.values) || 0
+
+  const value = parseFloat(result.values) || 0
+
+  // Google retorna em micros — divide por 1.000.000
+  return MICROS_PLATFORMS.includes(platformKey) ? value / 1000000 : value
 }
 
 function fmtDate(d) {
