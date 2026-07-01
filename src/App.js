@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from './supabaseClient'
-import { getIntegrations, getSpendCached, getPeriodRange, delay, clearMetricsCache } from './reporteiService'
+import { getIntegrations, getMetricsData, getPeriodRange, delay, clearMetricsCache } from './reporteiService'
 import ClientCard from './components/ClientCard'
 import ClientModal from './components/ClientModal'
 import AporteModal from './components/AporteModal'
@@ -89,14 +89,12 @@ export default function App() {
   const [diasDecorridos, setDiasDecorridos] = useState(1)
   const [progress, setProgress] = useState({ current: 0, total: 0 })
 
-  // Carrega clientes do Supabase sem disparar busca de spend
   const loadClients = useCallback(async () => {
     const { data, error } = await supabase.from('clients_budget').select('*').order('project_name')
     if (error) { console.error(error); return [] }
     return data
   }, [])
 
-  // Busca spend apenas para os clientes passados (respeita filtro)
   const fetchSpends = useCallback(async (clientsToFetch, periodKey, cStart, cEnd) => {
     if (!clientsToFetch || clientsToFetch.length === 0) return
     const { start, end, diasDecorridos: dias } = getPeriodRange(periodKey, cStart, cEnd)
@@ -104,7 +102,6 @@ export default function App() {
     setProgress({ current: 0, total: clientsToFetch.length })
     clearMetricsCache()
 
-    // Marca como loading apenas os clientes que serão buscados
     setClients(prev => prev.map(c =>
       clientsToFetch.find(f => f.id === c.id) ? { ...c, loading: true } : c
     ))
@@ -115,17 +112,22 @@ export default function App() {
         await delay(800)
         const integrations = await getIntegrations(client.project_id, client.platform)
         if (!integrations.length) {
-          setClients(prev => prev.map(c => c.id === client.id ? { ...c, spent: 0, loading: false } : c))
+          setClients(prev => prev.map(c => c.id === client.id ? { ...c, spent: 0, metrics: null, loading: false } : c))
           setProgress(p => ({ ...p, current: i + 1 }))
           continue
         }
         const integration = integrations[0]
         await delay(400)
-        const spent = await getSpendCached(integration.id, client.platform, start, end)
-        setClients(prev => prev.map(c => c.id === client.id ? { ...c, spent, loading: false } : c))
+        const metrics = await getMetricsData(integration.id, client.platform, start, end)
+        setClients(prev => prev.map(c => c.id === client.id ? {
+          ...c,
+          spent: metrics.spend || 0,
+          metrics,
+          loading: false
+        } : c))
       } catch (e) {
         console.error('Erro:', client.project_name, e)
-        setClients(prev => prev.map(c => c.id === client.id ? { ...c, spent: 0, loading: false } : c))
+        setClients(prev => prev.map(c => c.id === client.id ? { ...c, spent: 0, metrics: null, loading: false } : c))
       }
       setProgress(p => ({ ...p, current: i + 1 }))
     }
@@ -134,10 +136,9 @@ export default function App() {
     setProgress({ current: 0, total: 0 })
   }, [])
 
-  // Carregamento inicial — só carrega lista, não busca spend
   useEffect(() => {
     loadClients().then(data => {
-      setClients(data.map(c => ({ ...c, spent: null, loading: false })))
+      setClients(data.map(c => ({ ...c, spent: null, metrics: null, loading: false })))
     })
   }, [loadClients])
 
@@ -151,9 +152,8 @@ export default function App() {
     setActiveCustomStart(customStart)
     setActiveCustomEnd(customEnd)
 
-    // Busca só os clientes visíveis (filtro de cliente + plataforma)
     const allClients = await loadClients()
-    setClients(allClients.map(c => ({ ...c, spent: null, loading: false })))
+    setClients(allClients.map(c => ({ ...c, spent: null, metrics: null, loading: false })))
 
     const clientsToFetch = allClients
       .filter(c => clientFilter === 'all' || c.project_name === clientFilter)
@@ -166,7 +166,7 @@ export default function App() {
   async function handleRefresh() {
     setRefreshing(true)
     const allClients = await loadClients()
-    setClients(allClients.map(c => ({ ...c, spent: null, loading: false })))
+    setClients(allClients.map(c => ({ ...c, spent: null, metrics: null, loading: false })))
 
     const clientsToFetch = allClients
       .filter(c => clientFilter === 'all' || c.project_name === clientFilter)
@@ -193,7 +193,7 @@ export default function App() {
     setShowAddModal(false)
     setEditClient(null)
     const updated = await loadClients()
-    setClients(updated.map(c => ({ ...c, spent: null, loading: false })))
+    setClients(updated.map(c => ({ ...c, spent: null, metrics: null, loading: false })))
   }
 
   async function handleSaveAporte(updatedClient) {
@@ -205,7 +205,7 @@ export default function App() {
     const updated = await loadClients()
     setClients(prev => updated.map(c => {
       const existing = prev.find(p => p.id === c.id)
-      return { ...c, spent: existing?.spent ?? null, loading: false }
+      return { ...c, spent: existing?.spent ?? null, metrics: existing?.metrics ?? null, loading: false }
     }))
   }
 
@@ -213,7 +213,7 @@ export default function App() {
     if (!window.confirm('Remover este cliente do monitor?')) return
     await supabase.from('clients_budget').delete().eq('id', id)
     const updated = await loadClients()
-    setClients(updated.map(c => ({ ...c, spent: null, loading: false })))
+    setClients(updated.map(c => ({ ...c, spent: null, metrics: null, loading: false })))
   }
 
   const activePlatforms = [...new Set(clients.map(c => c.platform))].filter(p => ALL_PLATFORMS.includes(p))
@@ -244,7 +244,7 @@ export default function App() {
   const isLoading = progress.total > 0
 
   const s = {
-    app: { maxWidth: 900, margin: '0 auto', padding: '0 1rem 3rem', fontFamily: 'system-ui, sans-serif' },
+    app: { maxWidth: 1100, margin: '0 auto', padding: '0 1rem 3rem', fontFamily: 'system-ui, sans-serif' },
     filterRow: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 },
     filterLabel: { fontSize: 11, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', minWidth: 60 },
     metricCard: { background: '#f9fafb', borderRadius: 8, padding: '1rem' },
@@ -364,7 +364,7 @@ export default function App() {
       )}
 
       <div style={{ marginTop: '1.5rem', padding: '1rem', background: '#f9fafb', borderRadius: 8, fontSize: 13, color: '#6b7280' }}>
-        ℹ Dias estimados = saldo disponível ÷ média de gasto diário (spend do período ÷ dias no período)
+        ℹ Dias estimados = saldo disponível ÷ média de gasto diário · 🔴 alerta · 🟡 atenção · 🟢 ok
       </div>
 
       {(showAddModal || editClient) && (
