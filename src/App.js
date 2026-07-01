@@ -87,6 +87,7 @@ export default function App() {
   const [lastUpdated, setLastUpdated] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
   const [diasDecorridos, setDiasDecorridos] = useState(1)
+  const [progress, setProgress] = useState({ current: 0, total: 0 })
 
   const loadClients = useCallback(async () => {
     const { data, error } = await supabase.from('clients_budget').select('*').order('project_name')
@@ -95,41 +96,43 @@ export default function App() {
     return data
   }, [])
 
-const fetchSpends = useCallback(async (data, periodKey, cStart, cEnd) => {
-  if (!data || data.length === 0) return
-  const { start, end, diasDecorridos: dias } = getPeriodRange(periodKey, cStart, cEnd)
-  setDiasDecorridos(dias)
+  const fetchSpends = useCallback(async (data, periodKey, cStart, cEnd) => {
+    if (!data || data.length === 0) return
+    const { start, end, diasDecorridos: dias } = getPeriodRange(periodKey, cStart, cEnd)
+    setDiasDecorridos(dias)
+    setProgress({ current: 0, total: data.length })
 
-  for (let i = 0; i < data.length; i++) {
-    const client = data[i]
-    try {
-      await delay(800)
-      const integrations = await getIntegrations(client.project_id, client.platform)
-      if (!integrations.length) {
+    for (let i = 0; i < data.length; i++) {
+      const client = data[i]
+      try {
+        await delay(800)
+        const integrations = await getIntegrations(client.project_id, client.platform)
+        if (!integrations.length) {
+          setClients(prev => prev.map(c => c.id === client.id ? { ...c, spent: 0, loading: false } : c))
+          setProgress(p => ({ ...p, current: i + 1 }))
+          continue
+        }
+        const integration = integrations[0]
+        await delay(400)
+        const spent = await getSpendCached(integration.id, client.platform, start, end)
+        setClients(prev => prev.map(c => c.id === client.id ? { ...c, spent, loading: false } : c))
+      } catch (e) {
+        console.error('Erro:', client.project_name, e)
         setClients(prev => prev.map(c => c.id === client.id ? { ...c, spent: 0, loading: false } : c))
-        continue
       }
-      const integration = integrations[0]
-      await delay(400)
-      const spent = await getSpendCached(integration.id, client.platform, start, end)
-      setClients(prev => prev.map(c => c.id === client.id ? { ...c, spent, loading: false } : c))
-    } catch (e) {
-      console.error('Erro:', client.project_name, e)
-      setClients(prev => prev.map(c => c.id === client.id ? { ...c, spent: 0, loading: false } : c))
+      setProgress(p => ({ ...p, current: i + 1 }))
     }
-  }
 
-  setLastUpdated(new Date())
-}, [])
+    setLastUpdated(new Date())
+    setProgress({ current: 0, total: 0 })
+  }, [])
 
   useEffect(() => {
     loadClients().then(data => fetchSpends(data, 'mes_atual', '', ''))
   }, [loadClients, fetchSpends])
 
   async function handleBuscar() {
-
     clearMetricsCache()
-
     if (period === 'personalizado' && (!customStart || !customEnd)) {
       alert('Informe as datas de início e fim.')
       return
@@ -144,9 +147,7 @@ const fetchSpends = useCallback(async (data, periodKey, cStart, cEnd) => {
   }
 
   async function handleRefresh() {
-
     clearMetricsCache()
-    
     setRefreshing(true)
     const data = await loadClients()
     await fetchSpends(data, activePeriod, activeCustomStart, activeCustomEnd)
@@ -154,7 +155,6 @@ const fetchSpends = useCallback(async (data, periodKey, cStart, cEnd) => {
   }
 
   async function handleSaveClient(formData) {
-    // Verifica duplicidade
     const exists = clients.find(c => c.project_id === formData.project_id && c.platform === formData.platform)
     if (exists && !editClient) {
       alert(`Já existe um card para ${formData.project_name} na plataforma ${PLATFORM_LABELS[formData.platform] || formData.platform}.`)
@@ -215,6 +215,7 @@ const fetchSpends = useCallback(async (data, periodKey, cStart, cEnd) => {
 
   const summaryLabel = clientFilter !== 'all' ? clientFilter : platformFilter !== 'all' ? PLATFORM_LABELS[platformFilter] : 'Todos os clientes'
   const activePeriodLabel = PERIOD_OPTIONS.find(o => o.value === activePeriod)?.label || ''
+  const isLoading = progress.total > 0
 
   const s = {
     app: { maxWidth: 900, margin: '0 auto', padding: '0 1rem 3rem', fontFamily: 'system-ui, sans-serif' },
@@ -242,14 +243,21 @@ const fetchSpends = useCallback(async (data, periodKey, cStart, cEnd) => {
         <div>
           <div style={{ fontSize: 20, fontWeight: 500, color: '#111' }}>Monitor de budget — GZ Marketing</div>
           <div style={{ fontSize: 13, color: '#9ca3af', marginTop: 2 }}>
-            {lastUpdated ? `${activePeriodLabel} · atualizado às ${lastUpdated.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : 'Carregando...'}
+            {isLoading
+              ? `Carregando ${progress.current} de ${progress.total} clientes...`
+              : lastUpdated ? `${activePeriodLabel} · atualizado às ${lastUpdated.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : 'Carregando...'}
           </div>
+          {isLoading && (
+            <div style={{ marginTop: 6, width: 300, height: 4, background: '#e5e7eb', borderRadius: 99, overflow: 'hidden' }}>
+              <div style={{ height: '100%', background: '#111', borderRadius: 99, width: `${(progress.current / progress.total) * 100}%`, transition: 'width 0.3s' }} />
+            </div>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={handleRefresh} disabled={refreshing} style={{ fontSize: 13 }}>
+          <button onClick={handleRefresh} disabled={isLoading || refreshing} style={{ fontSize: 13 }}>
             {refreshing ? 'Atualizando...' : '↻ Atualizar'}
           </button>
-          <button onClick={() => setShowAddModal(true)} style={{ fontSize: 13 }}>+ Cliente</button>
+          <button onClick={() => setShowAddModal(true)} disabled={isLoading} style={{ fontSize: 13 }}>+ Cliente</button>
         </div>
       </div>
 
@@ -266,8 +274,8 @@ const fetchSpends = useCallback(async (data, periodKey, cStart, cEnd) => {
               <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} style={{ fontSize: 13, padding: '5px 10px', borderRadius: 8, border: '0.5px solid #d1d5db' }} />
             </>
           )}
-          <button onClick={handleBuscar} disabled={refreshing} style={{ fontSize: 13, padding: '5px 16px', borderRadius: 8, background: '#111', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 500 }}>
-            {refreshing ? 'Buscando...' : 'Buscar'}
+          <button onClick={handleBuscar} disabled={isLoading || refreshing} style={{ fontSize: 13, padding: '5px 16px', borderRadius: 8, background: '#111', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 500 }}>
+            {isLoading ? `${progress.current}/${progress.total}` : 'Buscar'}
           </button>
         </div>
         <div style={s.filterRow}>
