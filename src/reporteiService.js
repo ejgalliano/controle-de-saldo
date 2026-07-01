@@ -44,6 +44,9 @@ async function getMetrics(slug) {
 }
 
 const metricsCache = {}
+export function clearMetricsCache() {
+  Object.keys(metricsCache).forEach(key => delete metricsCache[key])
+}
 
 export async function getSpendCached(integrationId, platformKey, startDate, endDate) {
   const slug = PLATFORM_SLUG_MAP[platformKey] || platformKey
