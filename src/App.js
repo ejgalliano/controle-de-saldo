@@ -95,42 +95,32 @@ export default function App() {
     return data
   }, [])
 
-  const fetchSpends = useCallback(async (data, periodKey, cStart, cEnd) => {
-    if (!data || data.length === 0) return
-    const { start, end, diasDecorridos: dias } = getPeriodRange(periodKey, cStart, cEnd)
-    setDiasDecorridos(dias)
+const fetchSpends = useCallback(async (data, periodKey, cStart, cEnd) => {
+  if (!data || data.length === 0) return
+  const { start, end, diasDecorridos: dias } = getPeriodRange(periodKey, cStart, cEnd)
+  setDiasDecorridos(dias)
 
-    const BATCH_SIZE = 3
-
-    for (let i = 0; i < data.length; i += BATCH_SIZE) {
-      const batch = data.slice(i, i + BATCH_SIZE)
-      const batchResults = await Promise.all(batch.map(async (client) => {
-        try {
-          const integrations = await getIntegrations(client.project_id, client.platform)
-          if (!integrations.length) return { ...client, spent: 0, loading: false }
-          const integration = integrations[0]
-          const spent = await getSpendCached(integration.id, client.platform, start, end)
-          return { ...client, spent, loading: false }
-        } catch (e) {
-          console.error('Erro:', e)
-          return { ...client, spent: 0, loading: false }
-        }
-      }))
-
-      setClients(prev => {
-        const updated = [...prev]
-        batchResults.forEach(r => {
-          const idx = updated.findIndex(c => c.id === r.id)
-          if (idx !== -1) updated[idx] = r
-        })
-        return updated
-      })
-
-      if (i + BATCH_SIZE < data.length) await delay(500)
+  for (let i = 0; i < data.length; i++) {
+    const client = data[i]
+    try {
+      await delay(800)
+      const integrations = await getIntegrations(client.project_id, client.platform)
+      if (!integrations.length) {
+        setClients(prev => prev.map(c => c.id === client.id ? { ...c, spent: 0, loading: false } : c))
+        continue
+      }
+      const integration = integrations[0]
+      await delay(400)
+      const spent = await getSpendCached(integration.id, client.platform, start, end)
+      setClients(prev => prev.map(c => c.id === client.id ? { ...c, spent, loading: false } : c))
+    } catch (e) {
+      console.error('Erro:', client.project_name, e)
+      setClients(prev => prev.map(c => c.id === client.id ? { ...c, spent: 0, loading: false } : c))
     }
+  }
 
-    setLastUpdated(new Date())
-  }, [])
+  setLastUpdated(new Date())
+}, [])
 
   useEffect(() => {
     loadClients().then(data => fetchSpends(data, 'mes_atual', '', ''))
