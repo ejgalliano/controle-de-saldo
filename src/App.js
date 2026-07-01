@@ -76,8 +76,11 @@ export default function App() {
   const [platformFilter, setPlatformFilter] = useState('all')
   const [clientFilter, setClientFilter] = useState('all')
   const [period, setPeriod] = useState('mes_atual')
+  const [activePeriod, setActivePeriod] = useState('mes_atual')
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
+  const [activeCustomStart, setActiveCustomStart] = useState('')
+  const [activeCustomEnd, setActiveCustomEnd] = useState('')
   const [showAddModal, setShowAddModal] = useState(false)
   const [editClient, setEditClient] = useState(null)
   const [aporteClient, setAporteClient] = useState(null)
@@ -88,7 +91,7 @@ export default function App() {
   const loadClients = useCallback(async () => {
     const { data, error } = await supabase.from('clients_budget').select('*').order('project_name')
     if (error) { console.error(error); return }
-    setClients(data.map(c => ({ ...c, spent: null, spentHoje: null, loading: true })))
+    setClients(data.map(c => ({ ...c, spent: null, loading: true })))
     return data
   }, [])
 
@@ -100,13 +103,13 @@ export default function App() {
     const updated = await Promise.all(data.map(async (client) => {
       try {
         const integrations = await getIntegrations(client.project_id, client.platform)
-        if (!integrations.length) return { ...client, spent: 0, spentHoje: 0, loading: false }
+        if (!integrations.length) return { ...client, spent: 0, loading: false }
         const integration = integrations[0]
         const spent = await getSpend(integration.id, client.platform, start, end)
-        return { ...client, spent, spentHoje: 0, loading: false }
+        return { ...client, spent, loading: false }
       } catch (e) {
         console.error('Erro ao buscar spend:', e)
-        return { ...client, spent: 0, spentHoje: 0, loading: false }
+        return { ...client, spent: 0, loading: false }
       }
     }))
 
@@ -115,13 +118,27 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    loadClients().then(data => fetchSpends(data, period, customStart, customEnd))
-  }, [loadClients, fetchSpends, period, customStart, customEnd])
+    loadClients().then(data => fetchSpends(data, activePeriod, activeCustomStart, activeCustomEnd))
+  }, [loadClients, fetchSpends])
+
+  async function handleBuscar() {
+    if (period === 'personalizado' && (!customStart || !customEnd)) {
+      alert('Informe as datas de início e fim.')
+      return
+    }
+    setRefreshing(true)
+    setActivePeriod(period)
+    setActiveCustomStart(customStart)
+    setActiveCustomEnd(customEnd)
+    const data = await loadClients()
+    await fetchSpends(data, period, customStart, customEnd)
+    setRefreshing(false)
+  }
 
   async function handleRefresh() {
     setRefreshing(true)
     const data = await loadClients()
-    await fetchSpends(data, period, customStart, customEnd)
+    await fetchSpends(data, activePeriod, activeCustomStart, activeCustomEnd)
     setRefreshing(false)
   }
 
@@ -136,7 +153,7 @@ export default function App() {
     setShowAddModal(false)
     setEditClient(null)
     const data = await loadClients()
-    fetchSpends(data, period, customStart, customEnd)
+    fetchSpends(data, activePeriod, activeCustomStart, activeCustomEnd)
   }
 
   async function handleSaveAporte(updatedClient) {
@@ -146,14 +163,14 @@ export default function App() {
     if (error) { alert('Erro ao registrar aporte.'); return }
     setAporteClient(null)
     const data = await loadClients()
-    fetchSpends(data, period, customStart, customEnd)
+    fetchSpends(data, activePeriod, activeCustomStart, activeCustomEnd)
   }
 
   async function handleDelete(id) {
     if (!window.confirm('Remover este cliente do monitor?')) return
     await supabase.from('clients_budget').delete().eq('id', id)
     const data = await loadClients()
-    fetchSpends(data, period, customStart, customEnd)
+    fetchSpends(data, activePeriod, activeCustomStart, activeCustomEnd)
   }
 
   const activePlatforms = [...new Set(clients.map(c => c.platform))].filter(p => ALL_PLATFORMS.includes(p))
@@ -180,6 +197,7 @@ export default function App() {
     : [{ platform: platformFilter, items: filteredClients }]
 
   const summaryLabel = clientFilter !== 'all' ? clientFilter : platformFilter !== 'all' ? PLATFORM_LABELS[platformFilter] : 'Todos os clientes'
+  const activePeriodLabel = PERIOD_OPTIONS.find(o => o.value === activePeriod)?.label || ''
 
   const s = {
     app: { maxWidth: 900, margin: '0 auto', padding: '0 1rem 3rem', fontFamily: 'system-ui, sans-serif' },
@@ -208,7 +226,7 @@ export default function App() {
         <div>
           <div style={{ fontSize: 20, fontWeight: 500, color: '#111' }}>Monitor de budget — GZ Marketing</div>
           <div style={{ fontSize: 13, color: '#9ca3af', marginTop: 2 }}>
-            {lastUpdated && `atualizado às ${lastUpdated.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`}
+            {lastUpdated ? `${activePeriodLabel} · atualizado às ${lastUpdated.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : 'Carregando...'}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -237,6 +255,13 @@ export default function App() {
               <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} style={{ fontSize: 13, padding: '5px 10px', borderRadius: 8, border: '0.5px solid #d1d5db' }} />
             </>
           )}
+          <button
+            onClick={handleBuscar}
+            disabled={refreshing}
+            style={{ fontSize: 13, padding: '5px 16px', borderRadius: 8, background: '#111', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 500 }}
+          >
+            {refreshing ? 'Buscando...' : 'Buscar'}
+          </button>
         </div>
         <div style={s.filterRow}>
           <span style={s.filterLabel}>Cliente</span>
