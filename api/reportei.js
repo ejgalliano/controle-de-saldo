@@ -1,3 +1,9 @@
+export const config = {
+  api: {
+    bodyParser: true,
+  },
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
@@ -10,7 +16,8 @@ export default async function handler(req, res) {
 
   if (!path) return res.status(400).json({ error: 'path required' })
 
-  const url = `https://app.reportei.com/api/v2/${path}`
+  const decodedPath = decodeURIComponent(path)
+  const url = `https://app.reportei.com/api/v2/${decodedPath}`
 
   try {
     const options = {
@@ -22,12 +29,18 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'POST' && req.body) {
-      options.body = JSON.stringify(req.body)
+      options.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body)
     }
 
     const response = await fetch(url, options)
-    const data = await response.json()
-    return res.status(response.status).json(data)
+    const text = await response.text()
+
+    try {
+      const data = JSON.parse(text)
+      return res.status(response.status).json(data)
+    } catch {
+      return res.status(response.status).send(text)
+    }
   } catch (error) {
     return res.status(500).json({ error: error.message })
   }
