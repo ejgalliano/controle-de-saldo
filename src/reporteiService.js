@@ -16,29 +16,42 @@ export async function getProjects() {
   return data.data || []
 }
 
-export async function getIntegrations(projectId, slug) {
-  let path = 'integrations?per_page=100'
+export async function getIntegrations(projectId, platformKey) {
+  const slug = PLATFORM_SLUG_MAP[platformKey] || platformKey
+  let path = `integrations?per_page=100`
   if (projectId) path += `&project_id=${projectId}`
   if (slug) path += `&slug=${slug}`
   const data = await reporteiFetch(path)
   return data.data || []
 }
 
-export async function getMetrics(integrationSlug) {
-  const data = await reporteiFetch(`metrics?integration_slug=${integrationSlug}&per_page=100`)
+export async function getMetrics(slug) {
+  const data = await reporteiFetch(`metrics?integration_slug=${slug}&per_page=100`)
   return data.data || []
 }
 
-export async function getSpend(integrationId, integrationSlug, startDate, endDate) {
-  const spendKey = integrationSlug === 'facebook_ads' ? 'fb_ads:spend'
-    : integrationSlug === 'google_ads' ? 'google_ads:cost'
-    : integrationSlug === 'linkedin_ads' ? 'linkedin_ads:spend'
-    : integrationSlug === 'tiktok_ads' ? 'tiktok_ads:spend'
-    : null
+// Mapeamento de chave interna → slug real do Reportei
+const PLATFORM_SLUG_MAP = {
+  facebook_ads: 'facebook_ads',
+  google_ads: 'google_adwords',
+  linkedin_ads: 'linkedin_ads',
+  tiktok_ads: 'tiktok_ads',
+}
 
+// Mapeamento de chave interna → reference_key da métrica de spend
+const SPEND_METRIC_KEY = {
+  facebook_ads: 'fb_ads:spend',
+  google_ads: 'google_adwords:cost',
+  linkedin_ads: 'linkedin_ads:spend',
+  tiktok_ads: 'tiktok_ads:spend',
+}
+
+export async function getSpend(integrationId, platformKey, startDate, endDate) {
+  const slug = PLATFORM_SLUG_MAP[platformKey] || platformKey
+  const spendKey = SPEND_METRIC_KEY[platformKey]
   if (!spendKey) return 0
 
-  const allMetrics = await getMetrics(integrationSlug)
+  const allMetrics = await getMetrics(slug)
   const spendMetric = allMetrics.find(m => m.reference_key === spendKey)
   if (!spendMetric) return 0
 
