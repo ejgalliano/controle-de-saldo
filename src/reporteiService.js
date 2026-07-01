@@ -16,6 +16,20 @@ export async function getProjects() {
   return data.data || []
 }
 
+const PLATFORM_SLUG_MAP = {
+  facebook_ads: 'facebook_ads',
+  google_ads: 'google_adwords',
+  linkedin_ads: 'linkedin_ads',
+  tiktok_ads: 'tiktok_ads',
+}
+
+const SPEND_METRIC_KEY = {
+  facebook_ads: 'fb_ads:spend',
+  google_ads: 'google_adwords:cost',
+  linkedin_ads: 'linkedin_ads:spend',
+  tiktok_ads: 'tiktok_ads:spend',
+}
+
 export async function getIntegrations(projectId, platformKey) {
   const slug = PLATFORM_SLUG_MAP[platformKey] || platformKey
   let path = `integrations?per_page=100`
@@ -28,22 +42,6 @@ export async function getIntegrations(projectId, platformKey) {
 export async function getMetrics(slug) {
   const data = await reporteiFetch(`metrics?integration_slug=${slug}&per_page=100`)
   return data.data || []
-}
-
-// Mapeamento de chave interna → slug real do Reportei
-const PLATFORM_SLUG_MAP = {
-  facebook_ads: 'facebook_ads',
-  google_ads: 'google_adwords',
-  linkedin_ads: 'linkedin_ads',
-  tiktok_ads: 'tiktok_ads',
-}
-
-// Mapeamento de chave interna → reference_key da métrica de spend
-const SPEND_METRIC_KEY = {
-  facebook_ads: 'fb_ads:spend',
-  google_ads: 'google_adwords:cost',
-  linkedin_ads: 'linkedin_ads:spend',
-  tiktok_ads: 'tiktok_ads:spend',
 }
 
 export async function getSpend(integrationId, platformKey, startDate, endDate) {
@@ -63,22 +61,53 @@ export async function getSpend(integrationId, platformKey, startDate, endDate) {
   }
 
   const data = await reporteiFetch('metrics/get-data', 'POST', body)
-  const value = data?.data?.[spendMetric.id]?.values
-  return value || 0
+  const result = data?.data?.[spendMetric.id]
+  if (!result || result.type === 'no_data_in_period') return 0
+  return parseFloat(result.values) || 0
 }
 
-export function getMonthRange() {
+function fmt(d) {
+  return d.toISOString().split('T')[0]
+}
+
+export function getPeriodRange(period, customStart, customEnd) {
   const now = new Date()
-  const start = new Date(now.getFullYear(), now.getMonth(), 1)
-  const fmt = (d) => d.toISOString().split('T')[0]
-  return { start: fmt(start), end: fmt(now) }
-}
+  const today = fmt(now)
 
-export function getTodayRange() {
-  const today = new Date().toISOString().split('T')[0]
-  return { start: today, end: today }
-}
-
-export function getDiasDecorridos() {
-  return new Date().getDate()
+  switch (period) {
+    case 'mes_atual': {
+      const start = fmt(new Date(now.getFullYear(), now.getMonth(), 1))
+      return { start, end: today, diasDecorridos: now.getDate() }
+    }
+    case 'mes_anterior': {
+      const start = fmt(new Date(now.getFullYear(), now.getMonth() - 1, 1))
+      const end = fmt(new Date(now.getFullYear(), now.getMonth(), 0))
+      const dias = new Date(now.getFullYear(), now.getMonth(), 0).getDate()
+      return { start, end, diasDecorridos: dias }
+    }
+    case 'ultimos_30': {
+      const start = new Date(now)
+      start.setDate(start.getDate() - 30)
+      return { start: fmt(start), end: today, diasDecorridos: 30 }
+    }
+    case 'ultimos_15': {
+      const start = new Date(now)
+      start.setDate(start.getDate() - 15)
+      return { start: fmt(start), end: today, diasDecorridos: 15 }
+    }
+    case 'ultimos_7': {
+      const start = new Date(now)
+      start.setDate(start.getDate() - 7)
+      return { start: fmt(start), end: today, diasDecorridos: 7 }
+    }
+    case 'personalizado': {
+      if (!customStart || !customEnd) return { start: today, end: today, diasDecorridos: 1 }
+      const diff = Math.max(1, Math.round((new Date(customEnd) - new Date(customStart)) / (1000 * 60 * 60 * 24)) + 1)
+      return { start: customStart, end: customEnd, diasDecorridos: diff }
+    }
+    default: {
+      const start = fmt(new Date(now.getFullYear(), now.getMonth(), 1))
+      return { start, end: today, diasDecorridos: now.getDate() }
+    }
+  }
 }
