@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from './supabaseClient'
-import { getIntegrations, getSpendCached, getPeriodRange, delay } from './reporteiService'
+import { getIntegrations, getSpendCached, getPeriodRange, delay, clearMetricsCache } from './reporteiService'
 import ClientCard from './components/ClientCard'
 import ClientModal from './components/ClientModal'
 import AporteModal from './components/AporteModal'
@@ -127,6 +127,9 @@ const fetchSpends = useCallback(async (data, periodKey, cStart, cEnd) => {
   }, [loadClients, fetchSpends])
 
   async function handleBuscar() {
+
+    const metricsCache = {}
+
     if (period === 'personalizado' && (!customStart || !customEnd)) {
       alert('Informe as datas de início e fim.')
       return
@@ -141,6 +144,8 @@ const fetchSpends = useCallback(async (data, periodKey, cStart, cEnd) => {
   }
 
   async function handleRefresh() {
+    const metricsCache = {}
+    
     setRefreshing(true)
     const data = await loadClients()
     await fetchSpends(data, activePeriod, activeCustomStart, activeCustomEnd)
