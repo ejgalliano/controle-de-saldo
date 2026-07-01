@@ -2,16 +2,13 @@ const BASE_URL = '/api/reportei'
 
 async function reporteiFetch(path, method = 'GET', body = null) {
   const encodedPath = encodeURIComponent(path)
-  const options = {
-    method,
-    headers: { 'Content-Type': 'application/json' }
-  }
+  const options = { method, headers: { 'Content-Type': 'application/json' } }
   if (body) options.body = JSON.stringify(body)
   const res = await fetch(`${BASE_URL}?path=${encodedPath}`, options)
   return res.json()
 }
 
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+export const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
 export async function getProjects() {
   const data = await reporteiFetch('projects?per_page=100')
@@ -41,38 +38,11 @@ export async function getIntegrations(projectId, platformKey) {
   return data.data || []
 }
 
-export async function getMetrics(slug) {
+async function getMetrics(slug) {
   const data = await reporteiFetch(`metrics?integration_slug=${slug}&per_page=100`)
   return data.data || []
 }
 
-export async function getSpend(integrationId, platformKey, startDate, endDate) {
-  const slug = PLATFORM_SLUG_MAP[platformKey] || platformKey
-  const spendKey = SPEND_METRIC_KEY[platformKey]
-  if (!spendKey) return 0
-
-  const allMetrics = await getMetrics(slug)
-  const spendMetric = allMetrics.find(m => m.reference_key === spendKey)
-  if (!spendMetric) return 0
-
-  const body = {
-    start: startDate,
-    end: endDate,
-    integration_id: integrationId,
-    metrics: [spendMetric]
-  }
-
-  const data = await reporteiFetch('metrics/get-data', 'POST', body)
-  if (!data?.data) return 0
-
-  const firstKey = Object.keys(data.data)[0]
-  if (!firstKey) return 0
-  const result = data.data[firstKey]
-  if (!result || result.type === 'no_data_in_period') return 0
-  return parseFloat(result.values) || 0
-}
-
-// Cache de métricas por slug para evitar requisições repetidas
 const metricsCache = {}
 
 export async function getSpendCached(integrationId, platformKey, startDate, endDate) {
@@ -80,11 +50,11 @@ export async function getSpendCached(integrationId, platformKey, startDate, endD
   const spendKey = SPEND_METRIC_KEY[platformKey]
   if (!spendKey) return 0
 
-  // Usa cache de métricas
   if (!metricsCache[slug]) {
     metricsCache[slug] = await getMetrics(slug)
     await delay(300)
   }
+
   const spendMetric = metricsCache[slug].find(m => m.reference_key === spendKey)
   if (!spendMetric) return 0
 
@@ -150,5 +120,3 @@ export function getPeriodRange(period, customStart, customEnd) {
     }
   }
 }
-
-export { delay }
