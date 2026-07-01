@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from './supabaseClient'
 import { getIntegrations, getSpend, getMonthRange, getTodayRange, getDiasDecorridos } from './reporteiService'
 import ClientCard from './components/ClientCard'
@@ -16,6 +16,75 @@ const ALL_PLATFORMS = ['facebook_ads', 'google_ads', 'linkedin_ads', 'tiktok_ads
 
 function fmt(v) {
   return 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function ClientSearch({ clientNames, clientFilter, setClientFilter }) {
+  const [search, setSearch] = useState('')
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  const filtered = clientNames.filter(n =>
+    n.toLowerCase().includes(search.toLowerCase())
+  )
+
+  const displayValue = clientFilter === 'all' ? '' : clientFilter
+
+  return (
+    <div ref={ref} style={{ position: 'relative', width: 280 }}>
+      <input
+        type="text"
+        placeholder={clientFilter === 'all' ? 'Todos os clientes...' : clientFilter}
+        value={open ? search : displayValue}
+        onChange={e => { setSearch(e.target.value); setOpen(true) }}
+        onFocus={() => { setSearch(''); setOpen(true) }}
+        style={{
+          width: '100%', fontSize: 13, padding: '6px 12px', borderRadius: 8,
+          border: '0.5px solid #d1d5db', background: '#fff', color: '#111',
+          outline: 'none', cursor: 'text'
+        }}
+      />
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4,
+          background: '#fff', border: '0.5px solid #e5e7eb', borderRadius: 8,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 50,
+          maxHeight: 240, overflowY: 'auto'
+        }}>
+          <div
+            style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: '#6b7280', borderBottom: '0.5px solid #f3f4f6' }}
+            onMouseDown={() => { setClientFilter('all'); setSearch(''); setOpen(false) }}
+          >
+            Todos os clientes
+          </div>
+          {filtered.length === 0 ? (
+            <div style={{ padding: '8px 12px', fontSize: 13, color: '#9ca3af' }}>Nenhum resultado</div>
+          ) : (
+            filtered.map(name => (
+              <div
+                key={name}
+                style={{
+                  padding: '8px 12px', fontSize: 13, cursor: 'pointer',
+                  background: clientFilter === name ? '#f3f4f6' : 'transparent',
+                  color: '#111', borderBottom: '0.5px solid #f9fafb'
+                }}
+                onMouseDown={() => { setClientFilter(name); setSearch(''); setOpen(false) }}
+              >
+                {name}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function App() {
@@ -129,8 +198,6 @@ export default function App() {
   const s = {
     app: { maxWidth: 900, margin: '0 auto', padding: '0 1rem 3rem', fontFamily: 'system-ui, sans-serif' },
     header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem 0 1rem', borderBottom: '0.5px solid #e5e7eb', marginBottom: '1.5rem' },
-    title: { fontSize: 20, fontWeight: 500, color: '#111' },
-    sub: { fontSize: 13, color: '#9ca3af', marginTop: 2 },
     summaryGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: '1.5rem' },
     metricCard: { background: '#f9fafb', borderRadius: 8, padding: '1rem' },
     metricLabel: { fontSize: 12, color: '#6b7280', marginBottom: 6 },
@@ -157,8 +224,8 @@ export default function App() {
     <div style={s.app}>
       <div style={s.header}>
         <div>
-          <div style={s.title}>Monitor de budget — GZ Marketing</div>
-          <div style={s.sub}>
+          <div style={{ fontSize: 20, fontWeight: 500, color: '#111' }}>Monitor de budget — GZ Marketing</div>
+          <div style={{ fontSize: 13, color: '#9ca3af', marginTop: 2 }}>
             {new Date().toLocaleString('pt-BR', { month: 'long', year: 'numeric' })} · dia {diasDecorridos} de {new Date(new Date().getFullYear(), new Date().getMonth()+1, 0).getDate()}
             {lastUpdated && ` · atualizado às ${lastUpdated.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`}
           </div>
@@ -174,12 +241,11 @@ export default function App() {
       <div style={s.filterSection}>
         <div style={s.filterRow}>
           <span style={s.filterLabel}>Cliente</span>
-          <button style={filterBtnStyle(clientFilter === 'all')} onClick={() => setClientFilter('all')}>Todos</button>
-          {clientNames.map(name => (
-            <button key={name} style={filterBtnStyle(clientFilter === name)} onClick={() => setClientFilter(name)}>
-              {name}
-            </button>
-          ))}
+          <ClientSearch
+            clientNames={clientNames}
+            clientFilter={clientFilter}
+            setClientFilter={setClientFilter}
+          />
         </div>
         <div style={s.filterRow}>
           <span style={s.filterLabel}>Plataforma</span>
@@ -195,6 +261,7 @@ export default function App() {
       <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: 8 }}>
         Exibindo: <strong style={{ color: '#374151' }}>{summaryLabel}</strong> · {filteredClients.length} card{filteredClients.length !== 1 ? 's' : ''}
       </div>
+
       <div style={s.summaryGrid}>
         <div style={s.metricCard}>
           <div style={s.metricLabel}>budget total</div>
