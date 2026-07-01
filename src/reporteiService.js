@@ -22,11 +22,27 @@ const PLATFORM_SLUG_MAP = {
   tiktok_ads: 'tiktok_ads',
 }
 
-const SPEND_METRIC_KEY = {
-  facebook_ads: 'fb_ads:spend',
-  google_ads: 'gads:cost_micros',
-  linkedin_ads: 'linkedin_ads:spend',
-  tiktok_ads: 'tiktok_ads:spend',
+const METRICS_MAP = {
+  facebook_ads: {
+    spend: 'fb_ads:spend',
+    leads: 'fb_ads:actions_lead',
+    cpl: 'fb_ads:actions_cost_per_lead',
+    ctr: 'fb_ads:ctr',
+    cpc: 'fb_ads:cpc',
+    cpm: 'fb_ads:cpm',
+    frequency: 'fb_ads:frequency',
+    reach: 'fb_ads:reach',
+    campaigns: 'fb_ads:count_campaigns',
+  },
+  google_ads: {
+    spend: 'gads:cost_micros',
+    conversions: 'gads:conversions',
+    cpl: 'gads:cost_per_conversion',
+    ctr: 'gads:ctr',
+    cpc: 'gads:average_cpc',
+    cpm: 'gads:average_cpm',
+    campaigns: 'gads:count_campaigns',
+  },
 }
 
 export async function getIntegrations(projectId, platformKey) {
@@ -49,35 +65,47 @@ export function clearMetricsCache() {
   Object.keys(metricsCache).forEach(key => delete metricsCache[key])
 }
 
-export async function getSpendCached(integrationId, platformKey, startDate, endDate) {
+export async function getMetricsData(integrationId, platformKey, startDate, endDate) {
   const slug = PLATFORM_SLUG_MAP[platformKey] || platformKey
-  const spendKey = SPEND_METRIC_KEY[platformKey]
-  if (!spendKey) return 0
+  const metricsKeys = METRICS_MAP[platformKey]
+  if (!metricsKeys) return {}
 
   if (!metricsCache[slug]) {
     metricsCache[slug] = await getMetrics(slug)
     await delay(300)
   }
 
-  const spendMetric = metricsCache[slug].find(m => m.reference_key === spendKey)
-  if (!spendMetric) return 0
+  const allMetrics = metricsCache[slug]
+
+  // Busca todas as métricas relevantes de uma vez
+  const metricsToFetch = Object.entries(metricsKeys)
+    .map(([key, refKey]) => ({ key, metric: allMetrics.find(m => m.reference_key === refKey) }))
+    .filter(({ metric }) => metric)
+
+  if (!metricsToFetch.length) return {}
 
   const body = {
     start: startDate,
     end: endDate,
     integration_id: integrationId,
-    metrics: [spendMetric]
+    metrics: metricsToFetch.map(({ metric }) => metric)
   }
 
   const data = await reporteiFetch('metrics/get-data', 'POST', body)
-  if (!data?.data) return 0
+  if (!data?.data) return {}
 
-  const firstKey = Object.keys(data.data)[0]
-  if (!firstKey) return 0
-  const result = data.data[firstKey]
-  if (!result || result.type === 'no_data_in_period') return 0
+  // Mapeia resultado por chave amigável
+  const result = {}
+  metricsToFetch.forEach(({ key, metric }) => {
+    const metricData = data.data[metric.id]
+    if (metricData && metricData.type !== 'no_data_in_period') {
+      result[key] = parseFloat(metricData.values) || 0
+    } else {
+      result[key] = 0
+    }
+  })
 
-  return parseFloat(result.values) || 0
+  return result
 }
 
 function fmtDate(d) {
