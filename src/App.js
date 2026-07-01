@@ -128,7 +128,7 @@ const fetchSpends = useCallback(async (data, periodKey, cStart, cEnd) => {
 
   async function handleBuscar() {
 
-    const metricsCache = {}
+    clearMetricsCache()
 
     if (period === 'personalizado' && (!customStart || !customEnd)) {
       alert('Informe as datas de início e fim.')
@@ -144,7 +144,8 @@ const fetchSpends = useCallback(async (data, periodKey, cStart, cEnd) => {
   }
 
   async function handleRefresh() {
-    const metricsCache = {}
+
+    clearMetricsCache()
     
     setRefreshing(true)
     const data = await loadClients()
