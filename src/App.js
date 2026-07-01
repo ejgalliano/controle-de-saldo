@@ -95,27 +95,42 @@ export default function App() {
     return data
   }, [])
 
-  const fetchSpends = useCallback(async (data, periodKey, cStart, cEnd) => {
-    if (!data || data.length === 0) return
-    const { start, end, diasDecorridos: dias } = getPeriodRange(periodKey, cStart, cEnd)
-    setDiasDecorridos(dias)
+const fetchSpends = useCallback(async (data, periodKey, cStart, cEnd) => {
+  if (!data || data.length === 0) return
+  const { start, end, diasDecorridos: dias } = getPeriodRange(periodKey, cStart, cEnd)
+  setDiasDecorridos(dias)
 
-    const updated = await Promise.all(data.map(async (client) => {
+  const BATCH_SIZE = 3
+  const results = []
+
+  for (let i = 0; i < data.length; i += BATCH_SIZE) {
+    const batch = data.slice(i, i + BATCH_SIZE)
+    const batchResults = await Promise.all(batch.map(async (client) => {
       try {
         const integrations = await getIntegrations(client.project_id, client.platform)
         if (!integrations.length) return { ...client, spent: 0, loading: false }
         const integration = integrations[0]
-        const spent = await getSpend(integration.id, client.platform, start, end)
+        const spent = await getSpendCached(integration.id, client.platform, start, end)
         return { ...client, spent, loading: false }
       } catch (e) {
-        console.error('Erro ao buscar spend:', e)
+        console.error('Erro:', e)
         return { ...client, spent: 0, loading: false }
       }
     }))
+    results.push(...batchResults)
+    setClients(prev => {
+      const updated = [...prev]
+      batchResults.forEach(r => {
+        const idx = updated.findIndex(c => c.id === r.id)
+        if (idx !== -1) updated[idx] = r
+      })
+      return updated
+    })
+    if (i + BATCH_SIZE < data.length) await delay(500)
+  }
 
-    setClients(updated)
-    setLastUpdated(new Date())
-  }, [])
+  setLastUpdated(new Date())
+}, [])
 
   useEffect(() => {
     loadClients().then(data => fetchSpends(data, activePeriod, activeCustomStart, activeCustomEnd))
